@@ -4,46 +4,66 @@ on:
     tags:
       - "v*"
   workflow_dispatch:
-  tag_name:
+    inputs:
+      tag_name:
         description: 'Tag name for manual release'
         required: true
-        default: 'v0.0.0
+        default: 'v0.0.0'
 
 jobs:
   build-manager:
     uses: ./.github/workflows/build-manager.yml
     secrets: inherit
+    
   release:
     needs:
       - build-manager
     runs-on: ubuntu-latest
     steps:
+      - name: Checkout code
+        uses: actions/checkout@v7
+        with:
+          fetch-depth: 0
+
+      - name: Create and push tag for manual trigger
+        if: github.event_name == 'workflow_dispatch'
+        run: |
+          git config user.name "github-actions"
+          git config user.email "github-actions@github.com"
+          git tag ${{ github.event.inputs.tag_name }}
+          git push origin ${{ github.event.inputs.tag_name }}
+
       - name: Download artifacts
-        uses: actions/download-artifact@v7
+        uses: actions/download-artifact@v4
+        with:
+          path: artifacts
 
       - name: Rename ksud
         run: |
           mkdir -p ksud
-          for dir in ./ksud-*; do
+          for dir in ./artifacts/ksud-*; do
               if [ -d "$dir" ]; then
                  echo "----- Rename $dir -----"
                  ksud_platform_name=$(basename "$dir")
                  find "$dir" -type f -name "ksud" -path "*/release/*" | while read -r ksud_file; do
                    if [ -f "$ksud_file" ]; then
-                     mv "$ksud_file" "ksud/$ksud_platform_name"
+                     cp "$ksud_file" "ksud/$ksud_platform_name"
                    fi
                  done
               fi
           done
 
       - name: Display structure of downloaded files
-        run: ls -R
+        run: ls -R artifacts/
 
-      - name: release
+      - name: Create Release
         uses: softprops/action-gh-release@v2
         with:
+          tag_name: ${{ github.event.inputs.tag_name || github.ref_name }}
           files: |
-            manager/*.apk
-            android*-lkm/*_kernelsu.ko
+            artifacts/manager/*.apk
+            artifacts/android*-lkm/*_kernelsu.ko
             ksud/ksud-*
-            ksuinit/**
+            artifacts/ksuinit/**
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
